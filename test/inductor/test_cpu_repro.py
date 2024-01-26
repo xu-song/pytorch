@@ -934,7 +934,7 @@ class CPUReproTests(TestCase):
             if use_tensor_overload:
                 zero_point = torch.tensor(zero_point, dtype=torch.int64)
                 scale = torch.tensor(scale)
-            with config.patch({"cpp.simdlen": None}):
+            with config.patch({"cpp.simdlen": None, "fx_graph_cache": False}):
                 torch._dynamo.reset()
                 metrics.reset()
                 self.common(fn, (x, scale, zero_point, use_dequant, use_quant))

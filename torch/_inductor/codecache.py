@@ -641,11 +641,14 @@ class FxGraphCache:
         return [s for s in inputs if isinstance(s, torch.SymInt)]
 
     @staticmethod
-    def _get_shape_env() -> ShapeEnv:
+    def _get_shape_env() -> Optional[ShapeEnv]:
         """
         Helper to get the shape env from the tracing context.
         """
-        return torch._guards.TracingContext.get().fake_mode.shape_env
+        ctx = torch._guards.TracingContext.try_get()
+        if not ctx:
+            return None
+        return ctx.fake_mode.shape_env
 
     @staticmethod
     def _lookup_graph(
@@ -673,6 +676,7 @@ class FxGraphCache:
 
             # Evaluate the guard expression in the current context.
             shape_env = FxGraphCache._get_shape_env()
+            assert shape_env is not None
             symints = FxGraphCache._filter_symints(example_inputs)
 
             # If there's not a cache hit, we don't want the evaluation to
@@ -718,10 +722,16 @@ class FxGraphCache:
         # Tensor shapes are already captured in the hash for the cache key. Any
         # Tensor arg with a symbolic shape will have a SymInt arg for the graph.
         shape_env = FxGraphCache._get_shape_env()
+        assert shape_env is not None
         symints = FxGraphCache._filter_symints(example_inputs)
         disk_compiled_graph.guards_expr = shape_env.produce_guards_expression(symints)
 
-        content = pickle.dumps(disk_compiled_graph)
+        try:
+            content = pickle.dumps(disk_compiled_graph)
+        except Exception as e:
+            log.debug("fx graph cache unable to serialize compiled graph: %s", e)
+            counters["inductor"]["fxgraph_cache_pickle_error"] += 1
+            return
 
         subdir = FxGraphCache._get_tmp_dir_for_key(key)
         if not os.path.exists(subdir):
@@ -744,6 +754,12 @@ class FxGraphCache:
         Load a compiled graph from the cache. If a cached entry does not exist,
         compile the graph and save it to the cache.
         """
+        if FxGraphCache._get_shape_env() is None:
+            # The caching impl requires that we have a shape env.
+            log.debug("fx graph cache no shape env")
+            counters["inductor"]["fxgraph_cache_bypass"] += 1
+            return compile_fx_fn(gm, example_inputs, **fx_kwargs)
+
         from filelock import FileLock
 
         key = compiled_fx_graph_hash(gm, example_inputs, fx_kwargs)
@@ -768,7 +784,10 @@ class FxGraphCache:
         """
         Clear out the on-disk cache.
         """
-        shutil.rmtree(FxGraphCache._get_tmp_dir())
+        try:
+            shutil.rmtree(FxGraphCache._get_tmp_dir())
+        except FileNotFoundError:
+            pass
 
 
 @dataclasses.dataclass
