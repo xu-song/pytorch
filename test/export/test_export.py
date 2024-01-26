@@ -9,6 +9,7 @@ from dataclasses import dataclass
 
 import torch
 import torch._dynamo as torchdynamo
+from torch._dynamo.eval_frame import is_windows
 import torch.nn.functional as F
 from functorch.experimental.control_flow import cond, map
 from torch import Tensor
@@ -991,6 +992,7 @@ class TestExport(TestCase):
         self.assertEqual(params[0].shape, [1, 10])  # weight
         self.assertEqual(params[1].shape, [1])  # bias
 
+    @unittest.skipIf(is_windows(), "Windows isn't supported for this case")
     def test_buffer_util(self):
         ep = export(
             torch.nn.BatchNorm2d(100, affine=False), (torch.ones(20, 100, 35, 45),)

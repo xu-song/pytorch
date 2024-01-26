@@ -11,7 +11,7 @@ from typing import List, Set
 
 import torch
 from functorch.experimental.control_flow import cond
-from torch._dynamo.eval_frame import is_dynamo_supported
+from torch._dynamo.eval_frame import is_dynamo_supported, is_windows
 from torch._export.pass_base import _ExportPassBaseDeprecatedDoNotUse
 from torch._export.passes.functionalize_side_effectful_ops_pass import (
     _FunctionalizeSideEffectfulOpsPass,
@@ -275,6 +275,7 @@ class TestPasses(TestCase):
         new_inp = torch.tensor([1, 1, 1, 1])
         self.assertEqual(mod(new_inp), ep(new_inp))
 
+    @unittest.skipIf(is_windows(), "Windows not supported")
     def test_runtime_assert_inline_constraints_for_cond(self) -> None:
         class M(torch.nn.Module):
             def __init__(self):
