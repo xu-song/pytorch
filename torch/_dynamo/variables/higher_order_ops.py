@@ -329,7 +329,6 @@ def speculate_subgraph(
     # use set_subgraph_inputs="manual" (not recommended). We do not recommend it in general because it has the
     # restriction that user need to manually control how to create placeholders and VariableTrackers for the args.
     set_subgraph_inputs="automatic",
-    restore_side_effects=True,
     should_flatten_outputs=False,
     # Pass in an originating tracer - this is needed for preserving context
     # across fwd-bwd for autograd.Function
@@ -374,19 +373,8 @@ def speculate_subgraph(
                 else contextlib.nullcontext()
             )
 
-            if restore_side_effects:
-                prev_side_effects = tx.output.side_effects.clone()
-
             with autograd_ctx:
                 output = f.call_function(tx, args, sub_kwargs)
-
-            if restore_side_effects:
-                # Captured variables are tracked in side-effects
-                # and they show up in output graph incorrectly.
-                # It is ok to undo this side-effect tracking
-                # as speculate_subgraph will allow only
-                # pure functions.
-                tx.output.side_effects = prev_side_effects
 
             treespec = None
             if should_flatten_outputs:
@@ -1382,7 +1370,6 @@ class AutogradFunctionApplyVariable(VariableTracker):
             kwargs,
             "autograd.Function",
             set_subgraph_inputs="manual",
-            restore_side_effects=False,
             tracer=fwd_tracer,
         )
 
@@ -1435,7 +1422,6 @@ class AutogradFunctionApplyVariable(VariableTracker):
                 "autograd.Function",
                 enable_grad=False,
                 set_subgraph_inputs="manual",
-                restore_side_effects=False,
                 tracer=bwd_tracer,
             )
 
