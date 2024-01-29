@@ -1045,6 +1045,7 @@ class TestExport(TestCase):
             ):
                 _ = export(mod, inp)
 
+    @unittest.skipIf(IS_WINDOWS, "Windows isn't supported for this case")
     @testing.expectedFailureSerDer
     @testing.expectedFailureNonStrict
     def test_module(self):
