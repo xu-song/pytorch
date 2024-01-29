@@ -1759,6 +1759,7 @@ def forward(self, arg_0):
         ):
             graph_module.eval()
 
+    @unittest.skipIf(IS_WINDOWS, "Windows not supported for this test")
     def test_export_cond_preserve_stack_trace_for_subgraphs(self):
         class MySubModule(torch.nn.Module):
             def foo(self, x):
