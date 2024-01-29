@@ -2378,6 +2378,7 @@ def forward(self, l_x_):
         )
         self.assertEqual(ep(*inputs), m3(*inputs))
 
+    @unittest.skipIf(IS_WINDOWS, "Windows isn't supported for this case")
     def test_export_then_compile_tensor_ctor(self):
         class M(torch.nn.Module):
             def forward(self, scores, mask):

@@ -1025,6 +1025,7 @@ def forward(self, arg0_1):
         result_true_true = graph.forward(b, torch.tensor(True), torch.tensor(True))
         self.assertEqual(result_true_true, (b * b) + torch.tensor([0.25, 0.25]))
 
+    @unittest.skipIf(IS_WINDOWS, "Windows not supported for this test")
     def test_cond_nested_traced_multi_fake_tensor(self):
         def true_a(y):
             return y * y
