@@ -407,6 +407,7 @@ class TestExport(TestCase):
         ):
             constraints = [dynamic_dim(inp_for_g, 0)]
 
+    @unittest.skipIf(IS_WINDOWS, "Windows isn't supported for this case")
     @testing.expectedFailureRetraceability
     @testing.expectedFailureNonStrict
     def test_map(self):
