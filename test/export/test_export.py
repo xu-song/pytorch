@@ -9,7 +9,6 @@ from dataclasses import dataclass
 
 import torch
 import torch._dynamo as torchdynamo
-from torch._dynamo.eval_frame import is_windows
 import torch.nn.functional as F
 from functorch.experimental.control_flow import cond, map
 from torch import Tensor
@@ -992,7 +991,7 @@ class TestExport(TestCase):
         self.assertEqual(params[0].shape, [1, 10])  # weight
         self.assertEqual(params[1].shape, [1])  # bias
 
-    @unittest.skipIf(is_windows(), "Windows isn't supported for this case")
+    @unittest.skipIf(IS_WINDOWS, "Windows isn't supported for this case")
     def test_buffer_util(self):
         ep = export(
             torch.nn.BatchNorm2d(100, affine=False), (torch.ones(20, 100, 35, 45),)
@@ -2727,6 +2726,7 @@ graph():
 
         self.assertEqual(gm_flat_non_strict(*inp), gm_flat_strict(*inp))
 
+    @unittest.skipIf(IS_WINDOWS, "Windows isn't supported for this case")
     def test_cond_with_module_stack_export_with(self):
         class Bar(torch.nn.Module):
             def __init__(self):

@@ -653,7 +653,7 @@ def is_dynamo_supported():
 def check_if_inductor_supported():
     check_if_dynamo_supported()
 
-    if is_windows():
+    if sys.platform == "win32":
         raise RuntimeError("Windows not yet supported for inductor")
 
 
@@ -663,10 +663,6 @@ def is_inductor_supported():
         return True
     except Exception:
         return False
-
-
-def is_windows():
-    return sys.platform == "win32"
 
 
 def optimize(

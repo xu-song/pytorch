@@ -420,6 +420,7 @@ class TestDeserialize(TestCase):
         inputs = (torch.randn(3, 3, device="meta"),)
         self.check_graph(mod, inputs)
 
+    @unittest.skipIf(IS_WINDOWS, "Windows not supported for this test")
     def test_cond(self):
         from functorch.experimental.control_flow import cond
         inputs = torch.ones(4, 3), torch.zeros(4, 3)
