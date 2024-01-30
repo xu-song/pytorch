@@ -130,7 +130,7 @@ class TestDynamismExpression(TestCase):
         # Being able to export means shape is preserved as static
         export(WrapperModule(branch_on_shape), inp)
 
-
+@unittest.skipIf(IS_WINDOWS, "Windows isn't supported for this case")
 @unittest.skipIf(not torchdynamo.is_dynamo_supported(), "dynamo isn't support")
 class TestExport(TestCase):
     def _test_export_same_as_eager(self, f, args, kwargs=None):
@@ -407,7 +407,6 @@ class TestExport(TestCase):
         ):
             constraints = [dynamic_dim(inp_for_g, 0)]
 
-    @unittest.skipIf(IS_WINDOWS, "Windows isn't supported for this case")
     @testing.expectedFailureRetraceability
     @testing.expectedFailureNonStrict
     def test_map(self):
@@ -992,7 +991,6 @@ class TestExport(TestCase):
         self.assertEqual(params[0].shape, [1, 10])  # weight
         self.assertEqual(params[1].shape, [1])  # bias
 
-    @unittest.skipIf(IS_WINDOWS, "Windows isn't supported for this case")
     def test_buffer_util(self):
         ep = export(
             torch.nn.BatchNorm2d(100, affine=False), (torch.ones(20, 100, 35, 45),)
@@ -1045,7 +1043,6 @@ class TestExport(TestCase):
             ):
                 _ = export(mod, inp)
 
-    @unittest.skipIf(IS_WINDOWS, "Windows isn't supported for this case")
     @testing.expectedFailureSerDer
     @testing.expectedFailureNonStrict
     def test_module(self):
@@ -1085,7 +1082,6 @@ class TestExport(TestCase):
         self.assertTrue(torch.allclose(ep(*inp_test)[0], ep_rexported(*inp_test)[0]))
         self.assertTrue(torch.allclose(ep(*inp_test)[1], ep_rexported(*inp_test)[1]))
 
-    @unittest.skipIf(IS_WINDOWS, "Windows isn't supported for this case")
     @testing.expectedFailureSerDer
     @testing.expectedFailureNonStrict
     def test_module_with_dict_container_inp_out(self):
@@ -1631,7 +1627,6 @@ def forward(self, arg_0):
                     torch.allclose(torch.tensor(7, dtype=torch.float), buffer)
                 )
 
-    @unittest.skipIf(IS_WINDOWS, "Windows not supported for this test")
     def test_retracable_ep(self):
         class Bar(torch.nn.Module):
             def __init__(self):
@@ -1763,7 +1758,6 @@ def forward(self, arg_0):
         ):
             graph_module.eval()
 
-    @unittest.skipIf(IS_WINDOWS, "Windows not supported for this test")
     def test_export_cond_preserve_stack_trace_for_subgraphs(self):
         class MySubModule(torch.nn.Module):
             def foo(self, x):
@@ -2382,7 +2376,6 @@ def forward(self, l_x_):
         )
         self.assertEqual(ep(*inputs), m3(*inputs))
 
-    @unittest.skipIf(IS_WINDOWS, "Windows isn't supported for this case")
     def test_export_then_compile_tensor_ctor(self):
         class M(torch.nn.Module):
             def forward(self, scores, mask):
@@ -2732,7 +2725,6 @@ graph():
 
         self.assertEqual(gm_flat_non_strict(*inp), gm_flat_strict(*inp))
 
-    @unittest.skipIf(IS_WINDOWS, "Windows isn't supported for this case")
     def test_cond_with_module_stack_export_with(self):
         class Bar(torch.nn.Module):
             def __init__(self):
