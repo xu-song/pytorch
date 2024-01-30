@@ -37,6 +37,7 @@ import torch.utils.checkpoint
 from torch import _guards
 from torch._subclasses import fake_tensor
 from torch.export import Constraint
+from torch.export.dynamic_shapes import _process_dynamic_shapes
 from torch.fx.experimental.proxy_tensor import make_fx, maybe_disable_fake_tensor_mode
 from torch.fx.experimental.symbolic_shapes import (
     ConstraintViolationError,
@@ -1161,6 +1162,7 @@ def export(
     ] = None,
     tracing_mode: str = "symbolic",
     constraints: Optional[List[Constraint]] = None,
+    dynamic_shapes: Optional[Union[Dict[str, Any], Tuple[Any], List[Any]]] = None,
     assume_static_by_default: bool = False,
     same_signature: bool = True,
     disable_constraint_solver: bool = False,
@@ -1209,6 +1211,9 @@ def export(
     _assume_static_by_default = assume_static_by_default
 
     def inner(*args, **kwargs):
+        nonlocal constraints, f
+        if constraints is None:
+            constraints = _process_dynamic_shapes(f, args, kwargs, dynamic_shapes)
         f = _f
         assume_static_by_default = _assume_static_by_default
         check_if_dynamo_supported()
