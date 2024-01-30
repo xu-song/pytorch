@@ -1085,6 +1085,7 @@ class TestExport(TestCase):
         self.assertTrue(torch.allclose(ep(*inp_test)[0], ep_rexported(*inp_test)[0]))
         self.assertTrue(torch.allclose(ep(*inp_test)[1], ep_rexported(*inp_test)[1]))
 
+    @unittest.skipIf(IS_WINDOWS, "Windows isn't supported for this case")
     @testing.expectedFailureSerDer
     @testing.expectedFailureNonStrict
     def test_module_with_dict_container_inp_out(self):

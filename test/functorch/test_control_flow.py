@@ -1601,6 +1601,7 @@ def forward(self, arg0_1, arg1_1, arg2_1):
         # python scalar b is not lifted as input, so both branches take (x, a)
         self._check_closure_correctly_lifted(foo, args=(inp,), exp_res=res, exp_arg_num=2)
 
+    @unittest.skipIf(IS_WINDOWS, "Windows not supported for this test")
     def test_cond_nested_with_closure(self):
         a = torch.ones(1, 1)
         b = torch.ones(1, 1) + 1
