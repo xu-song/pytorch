@@ -1631,6 +1631,7 @@ def forward(self, arg_0):
                     torch.allclose(torch.tensor(7, dtype=torch.float), buffer)
                 )
 
+    @unittest.skipIf(IS_WINDOWS, "Windows not supported for this test")
     def test_retracable_ep(self):
         class Bar(torch.nn.Module):
             def __init__(self):

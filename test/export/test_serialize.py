@@ -210,7 +210,7 @@ class TestSerialize(TestCase):
             g.nodes[1].inputs[0].arg.as_tensor.name
         )
 
-
+@unittest.skipIf(IS_WINDOWS, "Windows not supported for this test")
 @unittest.skipIf(not torchdynamo.is_dynamo_supported(), "dynamo doesn't support")
 class TestDeserialize(TestCase):
     def check_graph(self, fn, inputs, dynamic_shapes=None, _check_meta=True) -> None:
@@ -420,7 +420,6 @@ class TestDeserialize(TestCase):
         inputs = (torch.randn(3, 3, device="meta"),)
         self.check_graph(mod, inputs)
 
-    @unittest.skipIf(IS_WINDOWS, "Windows not supported for this test")
     def test_cond(self):
         from functorch.experimental.control_flow import cond
         inputs = torch.ones(4, 3), torch.zeros(4, 3)
