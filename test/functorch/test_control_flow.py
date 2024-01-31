@@ -130,7 +130,7 @@ class ReduceMod(torch.nn.Module):
         return self._reduce(*operands)
 
 
-
+@unittest.skipIf(IS_WINDOWS, "Windows not supported for this test")
 @skipIfNoDynamoSupport
 class TestControlFlow(TestCase):
     def setUp(self):
@@ -871,7 +871,6 @@ def forward(self, x_1):
         result_true_true = graph.forward(b, torch.tensor(True), torch.tensor(True))
         self.assertEqual(result_true_true, (b * b) + torch.tensor([0.25, 0.25]))
 
-    @unittest.skipIf(IS_WINDOWS, "Windows not supported for this test")
     def test_cond_nested_traced_multi(self):
         def true_a(y):
             return y * y
@@ -1025,7 +1024,6 @@ def forward(self, arg0_1):
         result_true_true = graph.forward(b, torch.tensor(True), torch.tensor(True))
         self.assertEqual(result_true_true, (b * b) + torch.tensor([0.25, 0.25]))
 
-    @unittest.skipIf(IS_WINDOWS, "Windows not supported for this test")
     def test_cond_nested_traced_multi_fake_tensor(self):
         def true_a(y):
             return y * y
@@ -1601,7 +1599,6 @@ def forward(self, arg0_1, arg1_1, arg2_1):
         # python scalar b is not lifted as input, so both branches take (x, a)
         self._check_closure_correctly_lifted(foo, args=(inp,), exp_res=res, exp_arg_num=2)
 
-    @unittest.skipIf(IS_WINDOWS, "Windows not supported for this test")
     def test_cond_nested_with_closure(self):
         a = torch.ones(1, 1)
         b = torch.ones(1, 1) + 1
@@ -1678,7 +1675,6 @@ def forward(self, arg0_1, arg1_1):
     getitem = conditional[0];  conditional = None
     return [getitem]""")  # noqa: B950
 
-    @unittest.skipIf(IS_WINDOWS, "Windows not supported for this test")
     def test_cond_make_fx_preserve_stack_trace_for_nodes_in_subgraph(self):
 
         def true_fn(x):
