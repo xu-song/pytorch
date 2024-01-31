@@ -1179,6 +1179,14 @@ if(BUILD_SHARED_LIBS)
       ${PROJECT_SOURCE_DIR}/cmake/Modules/FindSYCLToolkit.cmake
       DESTINATION share/cmake/Caffe2/
       COMPONENT dev)
+  install(FILES
+      ${PROJECT_SOURCE_DIR}/cmake/Modules/FindSYCL.cmake
+      DESTINATION share/cmake/Caffe2/
+      COMPONENT dev)
+  install(DIRECTORY
+      ${PROJECT_SOURCE_DIR}/cmake/Modules/FindSYCL
+      DESTINATION share/cmake/Caffe2/
+      COMPONENT dev)
 
   install(EXPORT Caffe2Targets DESTINATION share/cmake/Caffe2
       FILE Caffe2Targets.cmake
