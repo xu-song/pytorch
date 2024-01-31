@@ -12,8 +12,8 @@
 #include <ATen/cuda/detail/IntegerDivider.cuh>
 
 using std::vector;
-using at::cuda::detail::IntDivider;
-using at::cuda::detail::DivMod;
+using at::detail::IntDivider;
+using at::detail::DivMod;
 
 template<typename Value>
 struct TestCase {
