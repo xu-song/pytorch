@@ -8838,7 +8838,7 @@ get_out().sum().backward()
                     x = x.split_with_sizes([1, 3], -1)[0]
 
                 with torch.autograd._force_original_view_tracking(False):
-                    x = x.chunk(2, -1)
+                    x = x.chunk(2, 0)
 
                 return x
 
@@ -8854,6 +8854,23 @@ get_out().sum().backward()
                 return x
 
             _test_fn(chain_with_only_current_view_func, torch.randn(2, 3, 4))
+
+    def test_view_func_replay_with_modified_state(self):
+        with torch.autograd._force_original_view_tracking(True):
+            base = torch.randn(3, 4, 5)
+            view = base.select(1, 2)
+
+            def symint_visitor_fn(x):
+                # modify saved index
+                return x + 1
+
+            # ensure modifying state changes view replay
+            new_base = torch.randn_like(base)
+            new_view = view._view_func(new_base, symint_visitor_fn, lambda t: t)
+            self.assertEqual(new_view, new_base.select(1, 3))
+
+            # ensure saved state reverts back afterwards
+            self.assertEqual(view._view_func(new_base), new_base.select(1, 2))
 
     def test_setup_context_when_forward_has_default_args(self):
         class PowFunction(Function):
