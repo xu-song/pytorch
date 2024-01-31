@@ -316,6 +316,7 @@ class TestControlFlow(TestCase):
         self.assertEqual(true_outs, fake_outs)
 
 
+@unittest.skipIf(IS_WINDOWS, "Windows not supported for this test")
 @skipIfNoDynamoSupport
 class TestControlFlowTraced(TestCase):
     def setUp(self):
