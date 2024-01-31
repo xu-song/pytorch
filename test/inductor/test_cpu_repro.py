@@ -1369,6 +1369,8 @@ class CPUReproTests(TestCase):
             "bitwise_or",
             "bitwise_xor",
             "to_dtype_bitcast",
+            "store_to_fp32_cache",
+            "load_from_fp32_cache",
         ]
         union = {*cpp_vec_op_list, *diff}
         self.assertTrue(
@@ -2942,6 +2944,35 @@ class CPUReproTests(TestCase):
         metrics.reset()
         self.common(fn, (x,))
         assert metrics.generated_cpp_vec_kernel_count == 1
+
+    def test_no_rebundant_to_dtypes_between_fused_scheduler_node(self):
+        # https://github.com/pytorch/pytorch/issues/115260
+        p0 = torch.tensor([1.0879], dtype=torch.float16)
+
+        class Model1(torch.nn.Module):
+            def __init__(self):
+                super().__init__()
+
+            def forward(self, *args):
+                cat = torch.cat((args[3], args[2], args[1], args[0]), dim=2)
+                max_1 = torch.max(args[4], p0)
+                mul = torch.mul(cat, max_1)
+                tan = torch.tan(mul)
+                return (mul, tan)
+
+        metrics.reset()
+        m = Model1()
+        self.common(
+            m,
+            (
+                torch.randn((17, 5, 1, 7)).half(),
+                torch.randn((17, 5, 1, 7)).half(),
+                torch.randn((17, 5, 11, 7)).half(),
+                torch.randn((17, 5, 1, 7)).half(),
+                torch.tensor(4.39, dtype=torch.float16),
+            ),
+        )
+        assert metrics.cpp_to_dtype_count == 5
 
 
 if __name__ == "__main__":

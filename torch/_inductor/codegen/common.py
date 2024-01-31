@@ -209,6 +209,7 @@ class DataTypePropagation:
         if node.target in (
             "rand",
             "randn",
+            "load_from_fp32_cache",
         ):
             return torch.float
 
