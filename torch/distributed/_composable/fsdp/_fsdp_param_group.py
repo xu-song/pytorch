@@ -1,3 +1,5 @@
+import contextlib
+
 from typing import Any, cast, Dict, List, Optional, Tuple
 
 import torch
@@ -13,7 +15,12 @@ from ._fsdp_collectives import (
     foreach_all_gather_copy_out,
     foreach_reduce_scatter,
 )
-from ._fsdp_common import FSDPMeshInfo, HSDPMeshInfo, TrainingState
+from ._fsdp_common import (
+    _raise_assert_with_print,
+    FSDPMeshInfo,
+    HSDPMeshInfo,
+    TrainingState,
+)
 from ._fsdp_param import FSDPParam, ParamModuleInfo, ShardedState
 
 
@@ -37,6 +44,8 @@ class FSDPCommContext:
         # Reduce-scatter stream gives separate execution "thread" for post-
         # backward logic like pre/post-gradient division and reduce-scatter
         self.reduce_scatter_stream = torch.cuda.Stream(priority=high_priority)
+        # Post-forward order for explicit backward prefetching
+        self.post_forward_order: List[FSDPParamGroup] = []
 
 
 class FSDPParamGroup:
@@ -67,6 +76,10 @@ class FSDPParamGroup:
 
         # - Communication and communication/computation overlap
         self.comm_ctx = FSDPCommContext()
+        self._post_forward_indices: List[int] = []
+        # Used to avoid mistargeted backward prefetches in the case that some
+        # module is used in forward but not in backward
+        self.expected_backward_unshard_count: int = 0
         self._init_grad_divide_factors()
 
         # - CUDA events for stream synchronization
@@ -192,14 +205,24 @@ class FSDPParamGroup:
     def post_forward(self, module: nn.Module, input: Any, output: Any):
         with torch.profiler.record_function("FSDP::post_forward"):
             self.reshard()
+            self._record_post_forward()
             self._training_state = TrainingState.IDLE
             return output
+
+    def _record_post_forward(self) -> None:
+        # Since a group has one pre-backward unshard for each forward call
+        # before the backward, we record each usage (with multiplicity)
+        post_forward_index = len(self.comm_ctx.post_forward_order)
+        self.comm_ctx.post_forward_order.append(self)
+        self._post_forward_indices.append(post_forward_index)
 
     def pre_backward(self, *unused: Any):
         with torch.profiler.record_function("FSDP::pre_backward"):
             self._training_state = TrainingState.PRE_BACKWARD
             self.unshard()  # no-op if prefetched
             self.wait_for_unshard()
+            self.expected_backward_unshard_count -= 1
+            self._prefetch_unshard()
 
     def _post_backward(self, *unused: Any):
         self._training_state = TrainingState.POST_BACKWARD
@@ -238,6 +261,25 @@ class FSDPParamGroup:
             torch.cuda.current_stream().wait_event(self._reduce_scatter_view_out_event)
             self._reduce_scatter_view_out_event = None
         self._training_state = TrainingState.IDLE
+        self._post_forward_indices.clear()
+        self.expected_backward_unshard_count = 0
+
+    def _prefetch_unshard(self):
+        if self._training_state == TrainingState.PRE_BACKWARD:
+            if not self._post_forward_indices:
+                msg = "Unexpected backward prefetching without running forward"
+                _raise_assert_with_print(msg)
+            curr_index = self._post_forward_indices.pop()
+            if (target_index := curr_index - 1) < 0:
+                return
+            target_fsdp_param_group = self.comm_ctx.post_forward_order[target_index]
+            if target_fsdp_param_group.expected_backward_unshard_count > 0:
+                with torch.profiler.record_function(
+                    "FSDP::backward_prefetch"
+                ), target_fsdp_param_group.use_training_state(
+                    TrainingState.PRE_BACKWARD
+                ):
+                    target_fsdp_param_group.unshard()
 
     # Utilities #
     def _to_sharded(self):
@@ -257,6 +299,15 @@ class FSDPParamGroup:
             for fsdp_param in self.fsdp_params:
                 fsdp_param.to_unsharded()
             self._sharded_state = ShardedState.UNSHARDED
+
+    @contextlib.contextmanager
+    def use_training_state(self, training_state: TrainingState):
+        old_training_state = self._training_state
+        self._training_state = training_state
+        try:
+            yield
+        finally:
+            self._training_state = old_training_state
 
     # Hook Registration #
     def _register_post_backward_hook(

@@ -45,6 +45,8 @@ class FSDPState(_State):
         self._training_state: TrainingState = TrainingState.IDLE
         self._pre_forward_hook_handle: Optional[RemovableHandle] = None
         self._pre_backward_hook_handles: List[RemovableHandle] = []
+        # Shared post-forward order for explicit backward prefetching
+        self._post_forward_order: List[FSDPParamGroup] = []  # will cause ref cycles
 
     # Define a separate init since `__init__` is called in the contract
     def init(self, module: nn.Module, device: torch.device) -> None:
@@ -174,6 +176,7 @@ class FSDPState(_State):
             for handle in self._pre_backward_hook_handles:
                 handle.remove()
             self._pre_backward_hook_handles.clear()
+            self._comm_ctx.post_forward_order.clear()
 
     def _register_pre_backward_hook(self, output: Any) -> Any:
         if not torch.is_grad_enabled():
@@ -184,6 +187,8 @@ class FSDPState(_State):
         if tensors:
             handle = register_multi_grad_hook(tensors, self._pre_backward, mode="any")
             self._pre_backward_hook_handles.append(handle)
+            if self._fsdp_param_group:
+                self._fsdp_param_group.expected_backward_unshard_count += 1
         return output
 
     def _register_root_post_backward_final_callback(self):
