@@ -7,6 +7,7 @@ from typing import List
 import torch
 import torch.distributed as dist
 import torch.nn as nn
+from torch.distributed._composable.fsdp import MixedPrecisionPolicy
 from torch.distributed._composable.fsdp._fsdp_collectives import (
     foreach_all_gather,
     foreach_all_gather_copy_out,
@@ -62,7 +63,12 @@ class TestFullyShardCollectives(FSDPTestMultiThread):
         module = nn.ParameterList([param.detach().clone() for param in params])
         mesh_info = FSDPMeshInfo(_init_default_fully_shard_mesh(), shard_mesh_dim=0)
         fsdp_param_group = FSDPParamGroup(
-            list(module.parameters()), module, mesh_info, mesh_info, self.device
+            list(module.parameters()),
+            module,
+            mesh_info,
+            mesh_info,
+            self.device,
+            MixedPrecisionPolicy(),
         )
         return fsdp_param_group
 

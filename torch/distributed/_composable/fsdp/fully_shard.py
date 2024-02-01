@@ -7,6 +7,7 @@ import torch.nn as nn
 from torch.distributed._composable import contract
 from torch.distributed._tensor import DeviceMesh
 
+from ._fsdp_api import MixedPrecisionPolicy
 from ._fsdp_common import FSDPMeshInfo, HSDPMeshInfo
 from ._fsdp_init import (
     _get_device_from_mesh,
@@ -28,6 +29,7 @@ def fully_shard(
     *,
     mesh: Optional[DeviceMesh] = None,
     reshard_after_forward: Union[bool, int] = True,
+    mp_policy: MixedPrecisionPolicy = MixedPrecisionPolicy(),
 ):
     """
     Args:
@@ -47,6 +49,9 @@ def fully_shard(
             after forward. It should be a number between 1 and the ``mesh``
             shard dimension size exclusive. A common choice may be the
             intra-node size (i.e. ``torch.cuda.device_count()``).
+        mp_policy (MixedPrecisionPolicy): This controls the mixed precision
+            policy, which offers parameter/reduction mixed precision for this
+            module. See :class:`MixedPrecisionPolicy` for details.
     """
     if isinstance(module, (nn.ModuleList, nn.ModuleDict)):
         raise ValueError(
@@ -65,14 +70,14 @@ def fully_shard(
     )
 
     state = fully_shard.state(module)
-    state.init(module, device)
+    state.init(module, device, mp_policy)
 
     managed_modules = _get_managed_modules(module)
     params, buffers = _get_managed_states(managed_modules)
     _move_states_to_device(params, buffers, device, mesh_info)
     if params:
         state._fsdp_param_group = FSDPParamGroup(
-            params, module, mesh_info, post_forward_mesh_info, device
+            params, module, mesh_info, post_forward_mesh_info, device, mp_policy
         )
 
     # Place FSDP leftmost for highest priority in the method resolution order
