@@ -19,8 +19,8 @@ from enum import Enum
 from functools import lru_cache
 from typing import (
     Any,
-    cast,
     Callable,
+    cast,
     Dict,
     Iterable,
     List,
@@ -29,36 +29,45 @@ from typing import (
     Set,
     Tuple,
     Type,
+    TYPE_CHECKING,
     Union,
-    TYPE_CHECKING
 )
 
 import torch
 import torch.fx
 import torch.fx.traceback as fx_traceback
-from torch.fx.experimental import _config as config
-
-from torch.fx.experimental.recording import (
-    FakeTensorMeta,
-    ShapeEnvEvent,
-    record_shapeenv_event,
-    replay_shape_env_events,
-    shape_env_check_state_equal
-)
-from torch.fx.experimental.sym_node import SymNode, SymTypes
 
 # NB: The sym_* functions are used via getattr() and must be imported here.
 from torch import SymBool, SymFloat, SymInt
 from torch._guards import ShapeGuard, Source, TracingContext
-from torch.utils._python_dispatch import is_traceable_wrapper_subclass
-from torch.utils._sympy.functions import FloorDiv, Mod, IsNonOverlappingAndDenseIndicator
-from torch.utils._sympy.solve import try_solve
-from torch.utils._sympy.value_ranges import bound_sympy, SymPyValueRangeAnalysis, ValueRanges, ValueRangeError
-from torch.utils._sympy.singleton_int import SingletonInt
-from torch.utils._traceback import format_frame, CapturedTraceback
-from torch._utils_internal import signpost_event
 
 from torch._logging import LazyString
+from torch._utils_internal import signpost_event
+from torch.fx.experimental import _config as config
+
+from torch.fx.experimental.recording import (
+    FakeTensorMeta,
+    record_shapeenv_event,
+    replay_shape_env_events,
+    shape_env_check_state_equal,
+    ShapeEnvEvent,
+)
+from torch.fx.experimental.sym_node import SymNode, SymTypes
+from torch.utils._python_dispatch import is_traceable_wrapper_subclass
+from torch.utils._sympy.functions import (
+    FloorDiv,
+    IsNonOverlappingAndDenseIndicator,
+    Mod,
+)
+from torch.utils._sympy.singleton_int import SingletonInt
+from torch.utils._sympy.solve import try_solve
+from torch.utils._sympy.value_ranges import (
+    bound_sympy,
+    SymPyValueRangeAnalysis,
+    ValueRangeError,
+    ValueRanges,
+)
+from torch.utils._traceback import CapturedTraceback, format_frame
 
 if TYPE_CHECKING:
     from torch._dynamo.source import TensorPropertySource
@@ -809,6 +818,8 @@ class EqualityConstraint(Constraint):
     we can efficiently check whether two such sources are transitively equal.
     """
     source_pairs: List[Tuple[Source, Source]]
+    derived_equalities: List[Tuple[Source, Union[Source, sympy.Symbol], Callable]]
+    phantom_symbols: Dict[str, sympy.Symbol]
 
     def __post_init__(self):
         object.__setattr__(self, "_parents", {})
@@ -834,6 +845,12 @@ class EqualityConstraint(Constraint):
 
     def is_equal(self, source1, source2):
         return self._find(source1) == self._find(source2)
+
+    def is_derived(self, source, root, symbol, expr):
+        return any(
+            _source == source and _root == root and fn(symbol) == expr
+            for _source, _root, fn in self.derived_equalities
+        )
 
 
 def _assert_symbol_context(symbolic_context):
@@ -1449,7 +1466,7 @@ class DimConstraints:
         symbolic_equivalences = self._symbolic_equivalences
         self._symbolic_equivalences = []
         for source, expr in symbolic_equivalences:
-            if disable_equivalences and not isinstance(expr, sympy.Symbol):
+            if disable_equivalences and not self.is_supported_equivalence(expr):
                 for s in expr.free_symbols:
                     self._force_specialization(s)
                     sexpr = self._dcp._print_Symbol(s)
@@ -1459,6 +1476,39 @@ class DimConstraints:
         # remaining symbolic equivalences become dynamic equality constraints
         for source, expr in self._symbolic_equivalences:
             self._dynamic_results.add(f"{self._dcp.print_source(source)} == {self._dcp.doprint(expr)}")
+
+    @classmethod
+    def is_supported_equivalence(cls, expr):
+        if isinstance(expr, (sympy.Add, sympy.Mul)):
+            lhs, rhs = expr.args
+            return (
+                (cls.is_supported_equivalence(lhs) and isinstance(rhs, sympy.Integer)) or
+                (isinstance(lhs, sympy.Integer) and cls.is_supported_equivalence(rhs))
+            )
+        return isinstance(expr, sympy.Symbol)
+
+    @classmethod
+    def solve_supported_equivalence(cls, expr, solution):
+        if isinstance(expr, sympy.Add):
+            lhs, rhs = expr.args
+            if isinstance(lhs, sympy.Integer):
+                return cls.solve_supported_equivalence(rhs, solution - lhs)
+            if isinstance(rhs, sympy.Integer):
+                return cls.solve_supported_equivalence(lhs, solution - rhs)
+            raise AssertionError
+        if isinstance(expr, sympy.Mul):
+            lhs, rhs = expr.args
+            if isinstance(lhs, sympy.Integer):
+                return cls.solve_supported_equivalence(rhs, solution / lhs)
+            if isinstance(rhs, sympy.Integer):
+                return cls.solve_supported_equivalence(lhs, solution / rhs)
+            raise AssertionError
+        if isinstance(expr, sympy.Symbol):
+            if isinstance(solution, (int, sympy.Integer)):
+                return int(solution)
+            else:
+                raise ValueError(f"{expr} is expected to be an integer, but got {solution}")
+        raise AssertionError
 
     def forced_specializations(self):
         def debug_name(src):
@@ -1539,7 +1589,7 @@ class DimConstraints:
                 t = transform(s)
                 if t == s:
                     continue
-                left, op, right = t.split(" ")
+                left, op, right = t.split(" ", 2)
                 if op == "==" and left == right:
                     continue
                 if right.isdigit():
@@ -1682,7 +1732,6 @@ class DimConstraints:
             )
             buf += f"\n{indent}]\n```\n"
         return buf
-
 
 
 TLS = threading.local()
@@ -2622,7 +2671,7 @@ class ShapeEnv:
         source_ref=lambda n: n.name(),
         *,
         input_contexts: Optional[DimList[SymbolicContext]] = None,
-        equalities_inputs: Optional[Set[Tuple[Source, Source]]] = None,
+        equalities_inputs: Optional[EqualityConstraint] = None,
         _simplified=False,
         # Indicates if we should produce guards for known static values.
         ignore_static=True,
@@ -2762,10 +2811,27 @@ class ShapeEnv:
                 concrete_val = self.evaluate_expr(sympy.Eq(s1, s2))
                 if not concrete_val:
                     raise ConstraintViolationError(
-                        f"{src1.name()} = {self.var_to_val[s1]}"
+                        f"{src1.name()} = {s1.subs(self.var_to_val)}"
                         " is not equal to "
-                        f"{src2.name()} = {self.var_to_val[s2]}"
+                        f"{src2.name()} = {s2.subs(self.var_to_val)}"
                     )
+
+            for src, root, fn in equalities_inputs.derived_equalities:
+                s1 = get_symbol(src)
+                s2 = root if isinstance(root, sympy.Symbol) else get_symbol(root)
+                s2_ = fn(s2)
+                concrete_val = self.evaluate_expr(sympy.Eq(s1, s2_))
+                if not concrete_val:
+                    debug_name = self.var_to_sources[root][0].name() if isinstance(root, sympy.Symbol) else self.debug_name(root)
+                    raise ConstraintViolationError(
+                        f"Expected input {src.name()} to be equal to "
+                        f"{s2_.subs({s2: sympy.Symbol(debug_name)})}, "
+                        f"where {debug_name} = {s2.subs(self.var_to_val)}, "
+                        f"but got {s1.subs(self.var_to_val)}"
+                    )
+
+            for phantom_symbol in equalities_inputs.phantom_symbols.values():
+                symbol_to_source[phantom_symbol].extend(self.var_to_sources[phantom_symbol])
 
         # How do we know what the value of s0 is?  Fresh variables can only be
         # bound by inputs, so there MUST be some other input which binds the
@@ -2933,19 +2999,36 @@ class ShapeEnv:
                 sexpr = ShapeGuardPrinter(symbol_to_source, source_ref, self.var_to_sources).doprint(expr)
                 exprs.append(f"{source_ref(source)} == {sexpr}")
                 if (
-                    isinstance(expr, sympy.Symbol) and
-                    expr in symbol_to_constraints and
                     isinstance(source, TensorPropertySource)
                     and source.prop is TensorProperty.SIZE
-                    and equalities_inputs and
-                    not equalities_inputs.is_equal(source, symbol_to_source[expr][0])
+                    and equalities_inputs
+                    and len(expr.free_symbols) == 1
                 ):
-                    msg = (
-                        f"The values of {self.debug_name(source)} = {source.name()} and "
-                        f"{self.debug_name(symbol_to_source[expr][0])} = {symbol_to_source[expr][0].name()} "
-                        "must always be equal."
-                    )
-                    record_constraint_violation(equalities_inputs.warn_only, self.debug_name(source), msg)
+                    symbol = next(iter(expr.free_symbols))
+                    if (
+                        isinstance(expr, sympy.Symbol) and
+                        expr in symbol_to_constraints and
+                        not equalities_inputs.is_equal(source, symbol_to_source[expr][0])
+                    ):
+                        msg = (
+                            f"The values of {self.debug_name(source)} = {source.name()} and "
+                            f"{self.debug_name(symbol_to_source[expr][0])} = {symbol_to_source[expr][0].name()} "
+                            "must always be equal."
+                        )
+                        record_constraint_violation(equalities_inputs.warn_only, self.debug_name(source), msg)
+
+                    if (
+                        not isinstance(expr, sympy.Symbol) and
+                        symbol in symbol_to_constraints and
+                        not equalities_inputs.is_derived(source, symbol_to_source[symbol][0], symbol, expr)
+                    ):
+                        msg = (
+                            f"The values of {self.debug_name(source)} = {source.name()} must always be related to the values of "
+                            f"{self.debug_name(symbol_to_source[symbol][0])} = {symbol_to_source[symbol][0].name()} by "
+                            f"{self.debug_name(source)} = {expr.subs({symbol: sympy.Symbol(self.debug_name(symbol_to_source[symbol][0]))})}."
+                        )
+                        record_constraint_violation(equalities_inputs.warn_only, self.debug_name(source), msg)
+
                 # NB: Not necessary to report constraint violations here:
                 # constraints are guaranteed to be on symbols (we've already
                 # caught constants and non-atomic expressions), so we only
