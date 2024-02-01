@@ -199,8 +199,8 @@ class FSDPParam:
             self.to_sharded_dtensor(padded_sharded_param[: sharded_param.size(0)])
         )
         self.sharded_param.requires_grad_(param.requires_grad)
-        unsafe_free_storage(param_data)  # free immediately
-        del param_data  # delete PyObject reference to avoid warning
+        # Let `param_data` be freed normally when its ref count reaches 0 when
+        # the `fully_shard` call returns to allow provided parameters to alias
         self._setattr_on_modules(self.sharded_param)
         self.sharded_state = ShardedState.SHARDED
 
