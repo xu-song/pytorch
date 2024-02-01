@@ -20,22 +20,9 @@ class AllGatherResult(NamedTuple):
 
 
 class AllGatherState(NamedTuple):
+    # Keep a reference to the all-gather result to avoid reusing memory early
     all_gather_result: AllGatherResult
-    event: torch.cuda.Event  # copy-out
-
-
-class AllGatherStateHolder:
-    def __init__(self):
-        self._state: Optional[AllGatherState] = None
-
-    def put(self, state: AllGatherState) -> None:
-        assert self._state is None, "Expects to hold only one all-gather state"
-        self._state = state
-
-    def pop(self) -> Optional[AllGatherState]:
-        state = self._state
-        self._state = None
-        return state
+    event: torch.cuda.Event  # all-gather copy-out
 
 
 @torch.no_grad()
